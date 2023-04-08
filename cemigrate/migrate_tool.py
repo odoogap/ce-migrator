@@ -1,4 +1,5 @@
-from pprint import pprint
+import os
+import ast
 import inspect
 
 DISABLED_MAIL_CONTEXT = {
@@ -10,78 +11,9 @@ DISABLED_MAIL_CONTEXT = {
     'leave_skip_date_check': True,
 }
 
-extra_args_res_users = {
-    'domain': [('login', '!=', ''), ('id', 'not in', [1, 2])],
-}
 
-extra_args_res_partners = {
-    'force_fields': ['customer', 'supplier', 'is_company'],
-    'domain': [('user_id', '=', False)],
-}
-
-extra_args_crm_lead = {
-    'force_fields': ['description']
-}
-
-extra_args_account_invoice = {
-    'force_fields': ['partner_id', 'date_invoice', 'user_id', 'fiscal_position_id', 'type', 'reference', 'number']
-}
-
-extra_args_account_move_line = {
-    'domain': [('display_type', 'in', ('product', 'line_section', 'line_note'))],
-}
-
-# model initiation settings
-MODEL_CONFIG = [
-    # model_name, key_fields, include_archived, new_model_name, create, extra_args
-    ('res.country', ['code'], False, 'res.country', False, {}),
-    ('res.country.state', ['code', 'name'], False, 'res.country.state', False, {}),
-    ('res.partner.title', ['name'], False, 'res.partner.title', False, {}),
-    ('res.currency', ['name'], True, 'res.currency', False, {}),
-    ('crm.team', ['name', 'alias_name'], False, 'crm.team', True, {}),
-    ('crm.stage', ['name'], False, 'crm.stage', True, {}),
-    ('crm.lead', ['name'], False, 'crm.lead', True, extra_args_crm_lead),
-    ('account.payment.term', ['name', 'note'], False, 'account.payment.term', True, {}),
-    ('crm.lead.tag', ['name'], False, 'crm.tag', True, {}),
-    ('res.users', ['login', 'name'], False, 'res.users', True, extra_args_res_users),
-    ('res.partner', ['name', 'type'], True, 'res.partner', True, extra_args_res_partners),
-    ('res.company', ['id'], False, 'res.company', False, {}),
-    ('hr.employee', ['name'], True, 'hr.employee', True, {}),
-    ('mail.message', ['subject', 'date', 'model', 'res_id', 'body', 'message_type'], False, 'mail.message', True, {}),
-    ('account.invoice', ['id', 'display_type'], False, 'account.move', True, extra_args_account_invoice),
-    ('account.move.line', [
-        'id',
-        'name',
-        'move_name',
-        'account_id',
-        'date',
-        'move_id',
-        'product_id',
-        'product_uom_id',
-        'quantity',
-        'date_maturity',
-        'price_unit',
-        'discount'
-    ], False, 'account.move.line', True, extra_args_account_move_line),
-    ('account.fiscal.position', ['name'], False, 'account.fiscal.position', True, {}),
-    ('hr.leave.type', ['name'], False, 'hr.leave.type', True, {}),
-    ('hr.leave.allocation', [
-        'name',
-        'holiday_status_id',
-        'employee_id',
-        'holiday_type',
-        'number_of_days',
-        'mode_company_id',
-    ], False, 'hr.leave.allocation', True, {}),
-    ('hr.leave', [
-        'holiday_status_id',
-        'employee_id',
-        'request_date_from',
-        'request_date_to',
-        'request_unit_half',
-        'holiday_type'
-    ], False, 'hr.leave', True, {}),
-]
+class MigrationError(Exception):
+    pass
 
 
 def rename_id(record):
@@ -101,7 +33,7 @@ def rec_to_str(rec):
     return "%s" % rec.get('name', rec.get('id'))
 
 
-class MigrateTool(object):
+class MigrateToolBase(object):
 
     def __init__(self, env, connection, verbose=False):
         self.env = env
@@ -173,20 +105,22 @@ class MigrateTool(object):
     def _get_field_info_dict(self, model_name):
         res = {}
         # model_name, key_fields , include_archived , new_model_name, create, extra_args
-        for line in MODEL_CONFIG:
-            extra_args = line[5]
-            if line[0] in self.post_methods:
-                extra_args['post_run'] = self.post_methods[line[0]]
-            if line[0] in self.transform_methods:
-                extra_args['transform'] = self.transform_methods[line[0]]
-            res[line[0]] = {
-                'key_fields': line[1],
-                'include_archived': line[2],
-                'new_model_name': line[3],
-                'create': line[4],
-                'extra_args': line[5],
-            }
-        return res[model_name]
+
+        config_path = os.environ.get('CEMIG_CONFIG', False)
+        try:
+            with open(config_path, 'rb') as cfg:
+                res = ast.literal_eval(cfg.read().decode('latin1'))
+            for key in res:
+                extra_args = res[key].get('extra_args')
+                if not extra_args:
+                    res[key]['extra_args'] = {}
+                if key in self.post_methods:
+                    res[key]['extra_args']['post_run'] = self.post_methods[key]
+                if key in self.transform_methods:
+                    res[key]['extra_args']['transform'] = self.transform_methods[key]
+            return res[model_name]
+        except Exception:
+            raise MigrationError('You need to define CEMIG_CONFIG environment variable')
 
     def _get_local_model_fields(self, model_name):
         return self.env[model_name].fields_get()
@@ -238,7 +172,16 @@ class MigrateTool(object):
                 self.iprint("ERROR: No lead found for old_id=%s" % rec['id'], verbose=True)
         self.env.cr.commit()
 
-    def import_chars(self, model_name):
+    def import_chars(self, model_name, force_fields=None):
+        """It will import all : 'char', 'text', 'boolean', 'selection' type fields that have the same name.
+        Use force fields to force them.
+
+        :param model_name:
+        :param force_fields:
+        :return:
+        """
+        if force_fields is None:
+            force_fields = []
         self.ensure_model(model_name)
 
         self.iprint("\n import chars: %s \n" % (self.model_name), verbose=True)
@@ -248,11 +191,11 @@ class MigrateTool(object):
             info['key_fields'], info['include_archived'], info['new_model_name'], info['create'], info['extra_args']
         rs = self.env[new_model_name].with_context(**DISABLED_MAIL_CONTEXT)
         remote_rs = self.connection.get_model(model_name)
-        extra_args = self._get_field_info_dict(model_name)['extra_args']
         transform_name = extra_args.get('transform', False)
         field_list = self.matching_char_fields
-        if 'force_fields' in extra_args:
-            field_list.extend(extra_args['force_fields'])
+        if force_fields:
+            field_list.extend(force_fields)
+
         for rec in remote_rs.search_read([], field_list):
             local_rec = rs.search([('old_id', '=', rec['id'])])
             if transform_name:

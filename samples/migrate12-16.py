@@ -1,8 +1,11 @@
-from .migrate_tool import MigrateTool
-from .migrate_tool import DISABLED_MAIL_CONTEXT
+#!/bin/python
+import os
+import odoolib
+from cemigrate import DISABLED_MAIL_CONTEXT
+from cemigrate import MigrateToolBase
 
 
-class MigrateToolInherit(MigrateTool):
+class MigrateTool(MigrateToolBase):
 
     def transform_res_partner(self, vals, key_fields):
         vals['customer_rank'] = vals.get('customer', False) and 1 or 0
@@ -84,3 +87,61 @@ class MigrateToolInherit(MigrateTool):
             else:
                 vals = False
         return vals, key_fields
+
+
+print("""
+---------------------------------------------------------------------
+""")
+
+connection = odoolib.get_connection(
+        hostname=os.environ.get('OLD_HOSTNAME', "localhost"),
+        database=os.environ.get('OLD_DATABASE', "v12_odoo"),
+        login=os.environ.get('OLD_LOGIN', "admin"),
+        password=os.environ.get('OLD_PASSWORD', "admin"),
+        port=int(os.environ.get('OLD_PORT', 443)),
+        protocol=os.environ.get('OLD_PROTOCOL', "jsonrpcs")
+)
+
+mt = MigrateTool(env, connection, False)
+
+# base objects
+mt.init_import_models('res.country')
+mt.init_import_models('res.country.state')
+mt.init_import_models('res.currency')
+
+# users partners
+mt.init_import_models('res.partner')
+mt.init_import_models('res.users')
+mt.import_chars('res.partner', ['customer', 'supplier', 'is_company'])
+mt.update_many2one_fields('res.partner', ['country_id', 'state_id', 'parent_id'])
+
+# leads
+mt.init_import_models('crm.lead.tag')
+mt.init_import_models('crm.stage')
+mt.import_chars('crm.lead', ['description'])
+mt.init_import_models('crm.team')
+mt.update_many2one_fields('crm.lead', ['user_id', 'country_id', 'stage_id', 'team_id', 'company_currency'])
+mt.update_many2many_fields('crm.lead', ['tag_ids'])
+
+mt.copy_chatter('crm.lead')
+
+mt.init_import_models('hr.employee')
+mt.import_chars('hr.employee')
+mt.update_many2one_fields('hr.employee', ['user_id'])
+mt.init_import_models('hr.leave.type')
+mt.import_chars('hr.leave.type')
+mt.init_import_models('res.company')
+mt.import_chars('res.company')
+mt.init_import_models('hr.leave.allocation')
+mt.init_import_models('hr.leave')
+
+mt.init_import_models('account.payment.term')
+mt.init_import_models('account.fiscal.position')
+
+# set ir_config 'sequence.mixin.constraint_start_date', '1970-01-01'
+mt.print_diff('account.invoice')
+mt.init_import_models('account.invoice')
+mt.import_chars('account.invoice', ['partner_id', 'date_invoice', 'user_id', 'fiscal_position_id', 'type', 'reference', 'number'])
+
+# TODO: implement
+mt.update_one2many_fields('account.invoice', 'line_ids')

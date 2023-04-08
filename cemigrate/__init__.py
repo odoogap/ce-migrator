@@ -1,1 +1,1 @@
-from .main import *
+from .migrate_tool import *
