@@ -1,8 +1,7 @@
 #!/bin/python
 import os
 import odoolib
-from cemigrate import DISABLED_MAIL_CONTEXT
-from cemigrate import MigrateToolBase
+from cemigrate import MigrateToolBase, DISABLED_MAIL_CONTEXT
 
 
 class MigrateTool(MigrateToolBase):
@@ -112,13 +111,13 @@ mt.init_import_models('res.currency')
 # users partners
 mt.init_import_models('res.partner')
 mt.init_import_models('res.users')
-mt.import_chars('res.partner', ['customer', 'supplier', 'is_company'])
+mt.import_basic_types('res.partner', ['customer', 'supplier'])
 mt.update_many2one_fields('res.partner', ['country_id', 'state_id', 'parent_id'])
 
 # leads
 mt.init_import_models('crm.lead.tag')
 mt.init_import_models('crm.stage')
-mt.import_chars('crm.lead', ['description'])
+mt.import_basic_types('crm.lead', ['description'])
 mt.init_import_models('crm.team')
 mt.update_many2one_fields('crm.lead', ['user_id', 'country_id', 'stage_id', 'team_id', 'company_currency'])
 mt.update_many2many_fields('crm.lead', ['tag_ids'])
@@ -126,12 +125,12 @@ mt.update_many2many_fields('crm.lead', ['tag_ids'])
 mt.copy_chatter('crm.lead')
 
 mt.init_import_models('hr.employee')
-mt.import_chars('hr.employee')
+mt.import_basic_types('hr.employee')
 mt.update_many2one_fields('hr.employee', ['user_id'])
 mt.init_import_models('hr.leave.type')
-mt.import_chars('hr.leave.type')
+mt.import_basic_types('hr.leave.type')
 mt.init_import_models('res.company')
-mt.import_chars('res.company')
+mt.import_basic_types('res.company')
 mt.init_import_models('hr.leave.allocation')
 mt.init_import_models('hr.leave')
 
@@ -141,7 +140,7 @@ mt.init_import_models('account.fiscal.position')
 # set ir_config 'sequence.mixin.constraint_start_date', '1970-01-01'
 mt.print_diff('account.invoice')
 mt.init_import_models('account.invoice')
-mt.import_chars('account.invoice', ['partner_id', 'date_invoice', 'user_id', 'fiscal_position_id', 'type', 'reference', 'number'])
+mt.import_basic_types('account.invoice', ['partner_id', 'date_invoice', 'user_id', 'fiscal_position_id', 'type', 'reference', 'number'])
 
 # TODO: implement
 mt.update_one2many_fields('account.invoice', 'line_ids')

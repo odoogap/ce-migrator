@@ -2,6 +2,7 @@ import os
 import ast
 import inspect
 
+
 DISABLED_MAIL_CONTEXT = {
     'tracking_disable': True,
     'mail_create_nolog': True,
@@ -81,7 +82,7 @@ class MigrateToolBase(object):
         cal_frame = inspect.getouterframes(cur_frame, 2)
         caller_name = cal_frame[1][3]
         if verbose or self.verbose:
-            print("[[%s]]: " % caller_name, *args)
+            print("\x1b[1m[%s]:\x1b(B\x1b[m " % caller_name, *args)
 
     def _compare_lists(self, origin, target, verbose=False):
         cp = {}
@@ -103,11 +104,9 @@ class MigrateToolBase(object):
             self._recalc_model()
 
     def _get_field_info_dict(self, model_name):
-        res = {}
-        # model_name, key_fields , include_archived , new_model_name, create, extra_args
-
         config_path = os.environ.get('CEMIG_CONFIG', False)
         try:
+            config_path = os.path.expanduser(config_path)
             with open(config_path, 'rb') as cfg:
                 res = ast.literal_eval(cfg.read().decode('latin1'))
             for key in res:
@@ -172,7 +171,7 @@ class MigrateToolBase(object):
                 self.iprint("ERROR: No lead found for old_id=%s" % rec['id'], verbose=True)
         self.env.cr.commit()
 
-    def import_chars(self, model_name, force_fields=None):
+    def import_basic_types(self, model_name, force_fields=None):
         """It will import all : 'char', 'text', 'boolean', 'selection' type fields that have the same name.
         Use force fields to force them.
 
