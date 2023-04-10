@@ -5,28 +5,15 @@
 This module imports Odoo models in a simple way. It's a shell script that connects through JSONRPC to the old version and
 creates the records in the new version server.
 
-It will require you to create a new field in all models using the following code:
-
-`models/base.py`
-```python
-from odoo import models, fields
-
-
-class BaseModel(models.AbstractModel):
-    _inherit = 'base'
-
-    old_id = fields.Integer(help='Used to save the old ID for import', default=-1)
-
-```
-
-Add this to your new version custom models
-This old_id is used by the script to get the link info on each record.
+It will create an x_old_id integer field on all imported models. This x_old_id is used by the script to get the link info
+on each record.
 
 ## Creating the shell script
 
 Create a new script, anywhere you like. It doesn't need to be inside any module.
 
 `migrate.py`
+
 ```python
 import os
 import odoolib
@@ -48,8 +35,8 @@ class MigrateTool(MigrateToolBase):
             if not user:
                 continue
             self.iprint(user)
-            [user_dict] = remote_rs.search_read([('id', '=', user.old_id)], ['partner_id'])
-            user.partner_id.old_id = user_dict['partner_id'][0]
+            [user_dict] = remote_rs.search_read([('id', '=', user.x_old_id)], ['partner_id'])
+            user.partner_id.x_old_id = user_dict['partner_id'][0]
 
             
 connection = odoolib.get_connection(
@@ -109,7 +96,7 @@ First we initialize the model with key fields
 mt.init_import_models('res.partner')
 ```
 
-Now that we have the new record with new (id) and (old_id) reference we can import other fields
+Now that we have the new record with new (id) and (x_old_id) reference we can import other fields
 Doing this, will import all 'char', 'text', 'boolean', 'selection' fields that have the same name and type. 
 
 ```python

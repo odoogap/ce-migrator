@@ -18,7 +18,7 @@ class MigrationError(Exception):
 
 
 def rename_id(record):
-    record['old_id'] = record['id'];
+    record['x_old_id'] = record['id'];
     del record['id']
     return record
 
@@ -48,12 +48,34 @@ class MigrateToolBase(object):
             lambda m: m.startswith('transform_'), model_methods)}
         self._recalc_model()
 
+    def ensure_old_id(self, model_name):
+        model = self.env['ir.model'].search([('model', '=', model_name)])
+        has_old_id = self.env['ir.model.fields'].search([
+            ('name', '=', 'x_old_id'),
+            ('model_id', '=', model.id)
+        ])
+        if not has_old_id:
+            data = {
+                'name': 'x_old_id',
+                'field_description': 'Old ID',
+                'ttype': 'integer',
+                'help': 'Technical field used for migration',
+                'required': False,
+                'index': True,
+                'copied': False,
+                'related': False,
+                'depends': False,
+            }
+            model.write({'field_id': [(0, 0, data),]})
+            self.env.cr.commit()
+
     def _recalc_model(self):
         # from remote server
         self.origin_fields = self._get_origin_model_fields(self.model_name)
         # from this server >= v16
         self.new_model_name = self._get_field_info_dict(self.model_name)['new_model_name']
         self.target_fields = self._get_local_model_fields(self.new_model_name)
+        self.ensure_old_id(self.new_model_name)
         # calculate diff
         self.diff = self._compare_lists(self.origin_fields, self.target_fields, verbose=False)
         self.matching_fields = filter(lambda x: self.diff[x]['origin'] and self.diff[x]['target'],
@@ -137,9 +159,9 @@ class MigrateToolBase(object):
         remote_rs = self.connection.get_model(model_name)
         domain = []
         for rec in remote_rs.search_read(domain, ['message_ids'], order="create_date DESC"):
-            local_rec = rs.search([('old_id', '=', rec['id'])], limit=1)
+            local_rec = rs.search([('x_old_id', '=', rec['id'])], limit=1)
             if len(local_rec.message_ids) == len(rec['message_ids']):
-                self.iprint("Nothing to import for old_id=%s" % rec['id'], verbose=True)
+                self.iprint("Nothing to import for x_old_id=%s" % rec['id'], verbose=True)
                 continue
             if local_rec and len(local_rec.message_ids) != len(rec['message_ids']):
                 for msg in self.connection.get_model('mail.message').search_read([
@@ -155,7 +177,7 @@ class MigrateToolBase(object):
                             'description',
                             'date'
                         ]):
-                    author_rec = rs_partner.search([('old_id', '=', msg['author_id'][0])], limit=1)
+                    author_rec = rs_partner.search([('x_old_id', '=', msg['author_id'][0])], limit=1)
                     local_rec.message_post(
                         email_from=msg['email_from'],
                         reply_to=msg['reply_to'],
@@ -168,7 +190,7 @@ class MigrateToolBase(object):
                         author_id=author_rec.id
                     )
             else:
-                self.iprint("ERROR: No lead found for old_id=%s" % rec['id'], verbose=True)
+                self.iprint("ERROR: No lead found for x_old_id=%s" % rec['id'], verbose=True)
         self.env.cr.commit()
 
     def import_basic_types(self, model_name, force_fields=None):
@@ -196,7 +218,7 @@ class MigrateToolBase(object):
             field_list.extend(force_fields)
 
         for rec in remote_rs.search_read([], field_list):
-            local_rec = rs.search([('old_id', '=', rec['id'])])
+            local_rec = rs.search([('x_old_id', '=', rec['id'])])
             if transform_name:
                 transform = getattr(self, transform_name)
                 rec, key_fields = transform(rec, key_fields)
@@ -219,13 +241,13 @@ class MigrateToolBase(object):
         rs = self.env[new_model_name].with_context(**DISABLED_MAIL_CONTEXT)
         remote_rs = self.connection.get_model(model_name)
         for rec in remote_rs.search_read([], fields):
-            match = rs.search([('old_id', '=', rec['id'])])
+            match = rs.search([('x_old_id', '=', rec['id'])])
             if match:
                 vals = {}
                 for fld in fields:
                     match_model = self.target_fields[fld]['relation']
                     if rec[fld]:
-                        vals[fld] = self.env[match_model].search([('old_id', '=', rec[fld][0])]).id
+                        vals[fld] = self.env[match_model].search([('x_old_id', '=', rec[fld][0])]).id
                 if vals:
                     match.write(vals)
         self.env.cr.commit()
@@ -237,13 +259,13 @@ class MigrateToolBase(object):
         rs = self.env[new_model_name].with_context(**DISABLED_MAIL_CONTEXT)
         remote_rs = self.connection.get_model(model_name)
         for rec in remote_rs.search_read([], fields):
-            match = rs.search([('old_id', '=', rec['id'])])
+            match = rs.search([('x_old_id', '=', rec['id'])])
             if match:
                 vals = {}
                 for fld in fields:
                     match_model = self.target_fields[fld]['relation']
                     if rec[fld]:
-                        vals[fld] = self.env[match_model].search([('old_id', 'in', rec[fld])]).ids
+                        vals[fld] = self.env[match_model].search([('x_old_id', 'in', rec[fld])]).ids
                 if vals:
                     vals_conv = {k: [(6, 0, v)] for k, v in vals.items()}
                     match.write(vals_conv)
@@ -256,7 +278,7 @@ class MigrateToolBase(object):
         rs = self.env[new_model_name].with_context(**DISABLED_MAIL_CONTEXT)
         remote_rs = self.connection.get_model(model_name)
         for rec in remote_rs.search_read([], [field], limit=100):
-            target_record = rs.search([('old_id', '=', rec['id'])])
+            target_record = rs.search([('x_old_id', '=', rec['id'])])
 
             if target_record:
                 # get relation model
@@ -273,7 +295,7 @@ class MigrateToolBase(object):
                 related_domain = relation_domain_filter + [(relation_field, '=', rec['id'])] + extra_domain
 
                 for ro_id in self.connection.get_model(relation_model).search(related_domain):
-                    rel_match = related_rs.search([('old_id', '=', ro_id)])
+                    rel_match = related_rs.search([('x_old_id', '=', ro_id)])
 
                     if rel_match:
                         self.iprint("|---> updating ", new_model_name)
@@ -301,7 +323,7 @@ class MigrateToolBase(object):
             if k.endswith('_id') and v:
                 rel_model = self._get_origin_model_fields(model_name)[k]['relation']
                 rel_model = self._get_field_info_dict(rel_model)['new_model_name']
-                domain_m21 = ['|', ('active', '=', False), ('active', '=', True), ('old_id', '=', rec[k][0])]
+                domain_m21 = ['|', ('active', '=', False), ('active', '=', True), ('x_old_id', '=', rec[k][0])]
                 new_id = self.env[rel_model].with_context(**DISABLED_MAIL_CONTEXT).search(domain_m21)
                 if len(new_id) == 0:
                     rec[k] = False
@@ -310,7 +332,7 @@ class MigrateToolBase(object):
                 elif len(new_id) == 2:
                     rec[k] = new_id.filtered(lambda x: x.active is True)[0].id
                 else:
-                    raise Exception('More/less than one match for the same old_id %s - old_id=%s' % (new_id, rec[k][0]))
+                    raise Exception('More/less than one match for the same x_old_id %s - x_old_id=%s' % (new_id, rec[k][0]))
         return rec
 
     def _handle_record(self, rs_model, key_fields, archived, create, record):
@@ -320,15 +342,15 @@ class MigrateToolBase(object):
         self.iprint("--DOMAIN: ", domain)
         match = rs_model.search(domain)
         if len(match) > 1:
-            raise Exception('More than one match for the same old_id')
+            raise Exception('More than one match for the same x_old_id')
         if match:
-            if match.old_id < 0:
-                match.old_id = record['id']
+            if match.x_old_id < 0:
+                match.x_old_id = record['id']
             return match
         else:
             self.iprint("no match: ", record, match)
             if create:
-                record['old_id'] = record['id']
+                record['x_old_id'] = record['id']
                 record.pop('id', None)
                 res = rs_model.create(record)
                 return res
@@ -342,6 +364,7 @@ class MigrateToolBase(object):
         :return:
         """
         info = self._get_field_info_dict(model_name)
+        self.ensure_model(model_name)
         key_fields, include_archived, new_model_name, create_record, extra_args = \
             info['key_fields'], info['include_archived'], info['new_model_name'], info['create'], info['extra_args']
         domain_extra = extra_args.get('domain', [])
@@ -353,7 +376,7 @@ class MigrateToolBase(object):
         domain = include_archived and ['|', ('active', '=', False), ('active', '=', True)] or []
         domain.extend(domain_extra)
         for rec in remote_rs.search_read(domain, key_fields, order="id"):
-            match = rs.search([('old_id', '=', rec['id'])])
+            match = rs.search([('x_old_id', '=', rec['id'])])
             if match:
                 self.iprint("    Already exists record model %s: %s" % (new_model_name or model_name, rec_to_str(rec)))
             else:

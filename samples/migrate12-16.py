@@ -19,8 +19,8 @@ class MigrateTool(MigrateToolBase):
             if not user:
                 continue
             self.iprint(user)
-            [user_dict] = remote_rs.search_read([('id', '=', user.old_id)], ['partner_id'])
-            user.partner_id.old_id = user_dict['partner_id'][0]
+            [user_dict] = remote_rs.search_read([('id', '=', user.x_old_id)], ['partner_id'])
+            user.partner_id.x_old_id = user_dict['partner_id'][0]
 
     def transform_hr_leave_allocation(self, vals, key_fields=False):
         vals['date_from'] = '2022-01-01'
@@ -29,7 +29,7 @@ class MigrateTool(MigrateToolBase):
     def post_leave_allocation(self, records):
         remote_rs = self.connection.get_model('hr.leave.allocation')
         for record in records:
-            [rec_dict] = remote_rs.search_read([('id', '=', record.old_id)], ['state'])
+            [rec_dict] = remote_rs.search_read([('id', '=', record.x_old_id)], ['state'])
             if record.state == 'draft':
                 if rec_dict['state'] == 'confirm':
                     record.action_confirm()
@@ -78,7 +78,7 @@ class MigrateTool(MigrateToolBase):
             rs1 = self.env[new_model_name].with_context(**DISABLED_MAIL_CONTEXT)
             vals['model'] = new_model_name
             if vals.get('res_id', False):
-                new_id = rs1.search([('old_id', '=', vals['res_id'])])
+                new_id = rs1.search([('x_old_id', '=', vals['res_id'])])
                 if new_id:
                     vals['res_id'] = new_id.id
                 else:
