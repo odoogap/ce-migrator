@@ -96,7 +96,8 @@ First we initialize the model with key fields
 mt.init_import_models('res.partner')
 ```
 
-Now that we have the new record with new (id) and (x_old_id) reference we can import other fields
+Now that we have the new record with new (id) and (x_old_id) reference we can import other fields.
+The config file uses key_fields concept, meaning that your match e.g name=old.name and city=old.city to initialize.
 Doing this, will import all 'char', 'text', 'boolean', 'selection' fields that have the same name and type. 
 
 ```python

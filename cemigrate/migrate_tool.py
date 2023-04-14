@@ -18,7 +18,7 @@ class MigrationError(Exception):
 
 
 def rename_id(record):
-    record['x_old_id'] = record['id'];
+    record['x_old_id'] = record['id']
     del record['id']
     return record
 
@@ -339,12 +339,11 @@ class MigrateToolBase(object):
         domain = archived and ['|', ('active', '=', False), ('active', '=', True)] or []
         # if key field is a "*_id" will return a <list>
         domain.extend([(f, '=', record[f][0]) if type(record[f]) is list else (f, '=', record[f]) for f in key_fields])
-        self.iprint("--DOMAIN: ", domain)
         match = rs_model.search(domain)
         if len(match) > 1:
             raise Exception('More than one match for the same x_old_id')
         if match:
-            if match.x_old_id < 0:
+            if match.x_old_id < 0 or not match.x_old_id:
                 match.x_old_id = record['id']
             return match
         else:
@@ -375,7 +374,8 @@ class MigrateToolBase(object):
         remote_rs = self.connection.get_model(model_name)
         domain = include_archived and ['|', ('active', '=', False), ('active', '=', True)] or []
         domain.extend(domain_extra)
-        for rec in remote_rs.search_read(domain, key_fields, order="id"):
+
+        for rec in remote_rs.search_read(domain, key_fields + ['active'], order="id"):
             match = rs.search([('x_old_id', '=', rec['id'])])
             if match:
                 self.iprint("    Already exists record model %s: %s" % (new_model_name or model_name, rec_to_str(rec)))
@@ -402,6 +402,7 @@ class MigrateToolBase(object):
                     rec = self._convert_id_records(model_name, rec)
                     res = self._handle_record(rs, key_fields_target, include_archived, create_record, rec)
                     records = [res]
+
                 if post_run_name:
                     post_run = getattr(self, post_run_name)
                     post_run(records)

@@ -14,13 +14,23 @@ class MigrateTool(MigrateToolBase):
         return vals, key_fields
 
     def post_res_users(self, users):
+        """implies we import users first, partners second"""
         remote_rs = self.connection.get_model('res.users')
+        remote_rs_p = self.connection.get_model('res.partner')
         for user in users:
             if not user:
                 continue
-            self.iprint(user)
-            [user_dict] = remote_rs.search_read([('id', '=', user.x_old_id)], ['partner_id'])
-            user.partner_id.x_old_id = user_dict['partner_id'][0]
+            x_old_id = user.x_old_id
+            user_dict = remote_rs.search_read([('id', '=', x_old_id)], ['partner_id'])
+            if user_dict:
+                [user_dict] = user_dict
+                user.partner_id.x_old_id = user_dict['partner_id'][0]
+                partner_dict = remote_rs_p.search_read([('id', '=', user_dict['partner_id'][0])], ['email'])
+                if partner_dict:
+                    [partner_dict] = partner_dict
+                    user.partner_id.email = partner_dict['email']
+                # this is not redundant, it's a fix to a real issue
+                user.x_old_id = x_old_id
 
     def transform_hr_leave_allocation(self, vals, key_fields=False):
         vals['date_from'] = '2022-01-01'
@@ -143,4 +153,4 @@ mt.init_import_models('account.invoice')
 mt.import_basic_types('account.invoice', ['partner_id', 'date_invoice', 'user_id', 'fiscal_position_id', 'type', 'reference', 'number'])
 
 # TODO: implement
-mt.update_one2many_fields('account.invoice', 'line_ids')
+# mt.update_one2many_fields('account.invoice', 'line_ids')
