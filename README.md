@@ -87,7 +87,6 @@ odoo-bin shell \
     -d v16_newdb --no-http --max-cron-threads=0 < migrate.py
 ```
 
-
 ## How does it work?
 
 First we initialize the model with key fields
@@ -101,13 +100,14 @@ The config file uses key_fields concept, meaning that your match e.g name=old.na
 Doing this, will import all 'char', 'text', 'boolean', 'selection' fields that have the same name and type. 
 
 ```python
-mt.import_basic_types('res.partner')
+mt.import_basic_types('res.partner', [])
 ```
 
 Since the fields 'customer' and 'supplier' have been changed to 'customer_rank' and 'supplier_rank'.
+Because they don't exist, we need to force them and use (def transform_res_partner) for conversion.
 
 ```python
-mt.import_basic_types('res.partner', ['customer', 'supplier'])
+mt.import_basic_types('res.partner',  ['customer', 'supplier'])
 ```
 
 and we also need to add the method: *transform_res_partner*
@@ -128,6 +128,5 @@ Now we can focus on Many2one fields:
 ```python
 mt.update_many2one_fields('res.partner', ['country_id', 'state_id', 'parent_id'])
 ```
-
 
 Just be sure to initialize the related models first. In this case 'res.country' and 'res.country.state'.

@@ -14,10 +14,8 @@
         'new_model_name': 'account.move'},
     'account.move.line': {
         'create': True,
-        'extra_args': {
-            'domain': [
-                ('display_type', 'in', ('product', 'line_section', 'line_note'))]},
         'include_archived': False,
+        'domain': [('display_type', 'in', ('product', 'line_section', 'line_note'))],
         'key_fields': [
             'id',
             'name',
@@ -152,8 +150,7 @@
     },
     'res.partner': {
         'create': True,
-        'extra_args': {
-            'domain': [('user_id', '=', False)]},
+        'extra_args': {},
         'include_archived': True,
         'key_fields': ['name', 'type'],
         'new_model_name': 'res.partner'
@@ -167,9 +164,8 @@
     },
     'res.users': {
         'create': True,
-        'extra_args': {'domain': [('login', '!=', ''),
-                                  ('id', 'not in', [1, 2])]},
-        'include_archived': False,
+        'domain': [('login', '!=', ''), ('id', 'not in', [1, 2])],
+        'include_archived': True,
         'key_fields': ['login', 'name'],
         'new_model_name': 'res.users'}
 }
