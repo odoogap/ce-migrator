@@ -4,7 +4,6 @@ import inspect
 import logging
 from odoolib.main import JsonRPCException
 
-
 _logger = logging.getLogger(__name__)
 
 DISABLED_MAIL_CONTEXT = {
@@ -22,7 +21,7 @@ class MigrationError(Exception):
 
 
 def rename_id(record, model_name):
-    record['x_%s_id' % model_name.replace('.','_')] = record['id']
+    record['x_%s_id' % model_name.replace('.', '_')] = record['id']
     del record['id']
     return record
 
@@ -39,15 +38,15 @@ def rec_to_str(rec):
 
 
 class MigrateToolBase(object):
-
     MODEL_INFO: dict
 
-    def __init__(self, env, connection, verbose=False):
+    def __init__(self, env, connection, verbose=False, test_mode=False):
         self.env = env
         self.connection = connection
         self.model_name = 'res.partner'
         self.MODEL_INFO = {}
         self.verbose = verbose
+        self.test_mode = test_mode
         model_methods = dir(self)
         self.post_methods = {key.replace('post_', '').replace('_', '.'): key for key in
                              filter(lambda m: m.startswith('post_'), model_methods)}
@@ -88,7 +87,7 @@ class MigrateToolBase(object):
         self.diff = self._compare_lists(self.origin_fields, self.target_fields, verbose=False)
         self.matching_fields = filter(lambda x: self.diff[x]['origin'] and self.diff[x]['target'],
                                       self.origin_fields.keys())
-        self.iprint("................. model_name / new_model_name: ", self.model_name, self.new_model_name, verbose=True)
+        _logger.info('MIG: ............ origin model: %s to target model: %s ' % (self.model_name, self.new_model_name))
         self.matching_char_fields = [
             field_name for field_name in filter(
                 lambda x: self.diff[x]['origin'] == 'char' and self.diff[x]['target'] in (
@@ -170,12 +169,12 @@ class MigrateToolBase(object):
     def _get_local_model_fields(self, model_name):
         return {f['name']: {'type': f['ttype'], 'relation': f['relation']} for f in
                 self.env['ir.model.fields'].search_read(
-                  [('model', '=', model_name), ('name', '!=', '__last_update')], ['name', 'ttype', 'relation'])}
+                    [('model', '=', model_name), ('name', '!=', '__last_update')], ['name', 'ttype', 'relation'])}
 
     def _get_origin_model_fields(self, model_name):
         return {f['name']: {'type': f['ttype'], 'relation': f['relation']} for f in
                 self.connection.get_model('ir.model.fields').search_read(
-                  [('model', '=', model_name), ('name', '!=', '__last_update')], ['name', 'ttype', 'relation'])}
+                    [('model', '=', model_name), ('name', '!=', '__last_update')], ['name', 'ttype', 'relation'])}
 
     def search_all(self, model_name, domain):
         """Search active=True and active=False if exists"""
@@ -214,7 +213,8 @@ class MigrateToolBase(object):
         for rec in remote_rs.search_read(domain, ['message_ids'], order="create_date DESC"):
             local_rec = rs.search([('x_%s_id' % model_name.replace('.', '_'), '=', rec['id'])], limit=1)
             if len(local_rec.message_ids) == len(rec['message_ids']):
-                self.iprint("Nothing to import for x_%s_id=%s" % (model_name.replace('.', '_'), rec['id']), verbose=True)
+                self.iprint("Nothing to import for x_%s_id=%s" % (model_name.replace('.', '_'), rec['id']),
+                            verbose=True)
                 continue
             if local_rec and len(local_rec.message_ids) != len(rec['message_ids']):
                 for msg in self.connection.get_model('mail.message').search_read([
@@ -243,7 +243,8 @@ class MigrateToolBase(object):
                         author_id=author_rec.id
                     )
             else:
-                self.iprint("ERROR: No lead found for x_%s_id=%s" % (model_name.replace('.', '_'), rec['id']), verbose=True)
+                self.iprint("ERROR: No lead found for x_%s_id=%s" % (model_name.replace('.', '_'), rec['id']),
+                            verbose=True)
         self.env.cr.commit()
 
     def import_basic_types(self, model_name, force_fields=None):
@@ -258,11 +259,14 @@ class MigrateToolBase(object):
             force_fields = []
         self.ensure_model(model_name)
         self.iprint("\n import chars: %s \n" % (self.model_name), verbose=True)
-        def different_items(y, x): return {k: x[k] for k in x if k in y and x[k] != y[k]}
+
+        def different_items(y, x):
+            return {k: x[k] for k in x if k in y and x[k] != y[k]}
+
         info = self._get_field_info_dict(model_name)
         key_fields, include_archived, new_model_name, create_record, extra_args = \
             info['key_fields'], info['include_archived'], info['new_model_name'], info['create'], info['extra_args']
-        rs = self.env[new_model_name].with_context(**DISABLED_MAIL_CONTEXT)
+        rs = self.env[new_model_name].with_context(recompute=False, **DISABLED_MAIL_CONTEXT)
         remote_rs = self.connection.get_model(model_name)
         transform_name = extra_args.get('transform', False)
         field_list = self.matching_char_fields
@@ -284,7 +288,8 @@ class MigrateToolBase(object):
 
                 if diff_dict:
                     local_rec.write(diff_dict)
-        self.env.cr.commit()
+            self.env.cr.commit()
+            self.env.flush_all()
 
     def update_many2one_fields(self, model_name, fields):
         """Run after you are happy with the result of check_fixed_models"""
@@ -292,7 +297,7 @@ class MigrateToolBase(object):
         new_model_name = self._get_field_info_dict(model_name)['new_model_name']
         rs = self.env[new_model_name].with_context(**DISABLED_MAIL_CONTEXT)
         remote_rs = self.connection.get_model(model_name)
-        for rec in remote_rs.search_read([], fields):
+        for rec in remote_rs.search_read([], fields, limit=self.test_mode and 100 or 0):
             match = rs.search([('x_%s_id' % model_name.replace('.', '_'), '=', rec['id'])])
             if match:
                 vals = {}
@@ -304,7 +309,8 @@ class MigrateToolBase(object):
                             ('x_%s_id' % match_old_model.replace('.', '_'), '=', rec[fld][0])]).id
                 if vals:
                     match.write(vals)
-        self.env.cr.commit()
+                    _logger.info('MIG: ... update_many2one_fields: %s ' % vals)
+            self.env.cr.commit()
 
     def update_many2many_fields(self, model_name, fields, verbose=False):
         """Run after you are happy with the result of check_fixed_models"""
@@ -320,7 +326,8 @@ class MigrateToolBase(object):
                     match_model = self.target_fields[fld]['relation']
                     match_old_model = self._get_old_model(match_model)
                     if rec[fld]:
-                        vals[fld] = self.env[match_model].search([('x_%s_id' % match_old_model.replace('.', '_'), 'in', rec[fld])]).ids
+                        vals[fld] = self.env[match_model].search(
+                            [('x_%s_id' % match_old_model.replace('.', '_'), 'in', rec[fld])]).ids
                 if vals:
                     vals_conv = {k: [(6, 0, v)] for k, v in vals.items()}
                     match.write(vals_conv)
@@ -353,7 +360,8 @@ class MigrateToolBase(object):
                         self.iprint("|---> updating ", new_model_name)
                     else:
                         self.iprint("|---> creating ", new_model_name, related_key_fields)
-                        [vals] = self.connection.get_model(relation_model).search_read([('id', '=', ro_id)], related_key_fields)
+                        [vals] = self.connection.get_model(relation_model).search_read([('id', '=', ro_id)],
+                                                                                       related_key_fields)
 
                         if vals and transform_name:
                             transform = getattr(self, transform_name)
@@ -385,7 +393,8 @@ class MigrateToolBase(object):
                 elif len(new_id) == 2:
                     rec[k] = new_id.filtered(lambda x: x.active is True)[0].id
                 else:
-                    raise Exception('More/less than one match for the same x_old_id %s - x_old_id=%s' % (new_id, rec[k][0]))
+                    raise Exception(
+                        'More/less than one match for the same x_old_id %s - x_old_id=%s' % (new_id, rec[k][0]))
         return rec
 
     def _handle_record(self, rs_model, key_fields, model_name, archived, create, record):
@@ -402,32 +411,32 @@ class MigrateToolBase(object):
             if x_old_id < 0 or not x_old_id:
                 setattr(match, 'x_%s_id' % model_name.replace('.', '_'), record['id'])
             return match
+        if create:
+            record['x_%s_id' % model_name.replace('.', '_')] = record['id']
+            record.pop('id', None)
+            res = rs_model.create(record)
+            return res
         else:
-            self.iprint("no match: ", record, match)
-            if create:
-                record['x_%s_id' % model_name.replace('.', '_')] = record['id']
-                record.pop('id', None)
-                res = rs_model.create(record)
-                return res
-            else:
-                return False
+            return False
 
     def init_import_models(self, model_name):
         """First check that things match and add the id of the origin to the new db
         This will also print records that don't match but sometimes doesn't matter
 
-            key_fields: minimum fields required to create a record and that distinguish it from others
+          Important config parameters:
+              key_fields: minimum fields required to create a record and that distinguish it from others
+              required_fields: fields required to create a record
 
         :return:
         """
         info = self._get_field_info_dict(model_name)
         self.ensure_model(model_name)
         domain_extra, required_fields, key_fields, include_archived, new_model_name, create_record, extra_args = \
-            info['domain'],info['required_fields'], info['key_fields'], info['include_archived'], \
-            info['new_model_name'], info['create'], info['extra_args']
+            info['domain'], info['required_fields'], info['key_fields'], info['include_archived'], \
+                info['new_model_name'], info['create'], info['extra_args']
         post_run_name = extra_args.get('post_run', False)
         transform_name = extra_args.get('transform', False)
-        self.iprint("\n Initiate import ------ model name: ", model_name)
+        _logger.info('MIG: ... Initiate import model name: %s' % model_name)
         rs = self.env[new_model_name].with_context(**DISABLED_MAIL_CONTEXT)
         remote_rs = self.connection.get_model(model_name)
         domain = []
@@ -436,39 +445,40 @@ class MigrateToolBase(object):
             fields = fields + ['active']
             domain = include_archived and ['|', ('active', '=', False), ('active', '=', True)] or []
         domain.extend(domain_extra)
-        for rec in self.remote_search_all(model_name, domain, fields=(fields + required_fields), order="id"):
-            match = self.search_all(new_model_name, [('x_%s_id' % model_name.replace('.', '_'), '=', rec['id'])])
-            if match:
-                self.iprint("    Already exists record model %s: %s" % (new_model_name or model_name, rec_to_str(rec)))
-            else:
-                self.iprint("    Importing record model %s: %s" % (new_model_name or model_name, rec_to_str(rec)))
-                if transform_name:
-                    transform = getattr(self, transform_name)
-                    rec, key_fields_target = transform(rec, key_fields)
-                else:
-                    key_fields_target = key_fields
-                if rec.get('parent_id', False):
-                    parent_id = rec.get('parent_id', False)[0]
-                    # first create the parent
-                    [parent_rec] = remote_rs.search_read([('id', '=', parent_id)], key_fields + required_fields)
-                    parent_rec.pop('parent_id', None)
-                    local_parent_id = self._handle_record(
-                        rs, key_fields_target, model_name, include_archived, create_record, parent_rec)
-                    # then create the child
-                    rec['parent_id'] = local_parent_id.id
-                    local_id = self._handle_record(rs, key_fields_target, model_name, include_archived, create_record, rec)
-                    records = [local_parent_id, local_id]
-                else:
-                    rec = self._convert_id_records(model_name, rec)
-                    res = self._handle_record(rs, key_fields_target, model_name, include_archived, create_record, rec)
-                    records = [res]
+        # exclude already imported
+        all_done = self.search_all(new_model_name, [('x_%s_id' % model_name.replace('.', '_'), '!=', False)])
+        domain.extend([('id', 'not in', all_done.mapped('x_%s_id' % model_name.replace('.', '_')))])
 
-                if post_run_name:
-                    post_run = getattr(self, post_run_name)
-                    post_run(records)
-        self.env.cr.commit()
+        for rec in self.remote_search_all(
+                model_name, domain, fields=(fields + required_fields),  order="id", limit=self.test_mode and 100 or 0):
+            _logger.info('MIG: Importing record model %s: %s' % (new_model_name or model_name, rec_to_str(rec)))
+            if transform_name:
+                transform = getattr(self, transform_name)
+                rec, key_fields_target = transform(rec, key_fields)
+            else:
+                key_fields_target = key_fields
+            if rec.get('parent_id', False):
+                parent_id = rec.get('parent_id', False)[0]
+                # first create the parent
+                [parent_rec] = remote_rs.search_read([('id', '=', parent_id)], key_fields + required_fields)
+                parent_rec.pop('parent_id', None)
+                local_parent_id = self._handle_record(
+                    rs, key_fields_target, model_name, include_archived, create_record, parent_rec)
+                # then create the child
+                rec['parent_id'] = local_parent_id.id
+                local_id = self._handle_record(rs, key_fields_target, model_name, include_archived, create_record, rec)
+                records = [local_parent_id, local_id]
+            else:
+                rec = self._convert_id_records(model_name, rec)
+                res = self._handle_record(rs, key_fields_target, model_name, include_archived, create_record, rec)
+                records = [res]
+
+            if post_run_name:
+                post_run = getattr(self, post_run_name)
+                post_run(records)
 
     def print_diff(self, model_name):
         self.ensure_model(model_name)
-        self.iprint("\n\tComparing origin model: %s with targe model: %s\n" % (model_name, self.new_model_name), verbose=True)
+        self.iprint("\n\tComparing origin model: %s with targe model: %s\n" % (model_name, self.new_model_name),
+                    verbose=True)
         self._compare_lists(self.origin_fields, self.target_fields, verbose=True)
